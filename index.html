@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Fourier Epicycles Drawing Tool</title>
+  <style>
+    :root{
+      --bg:#0f1220;          /* deep navy */
+      --panel:#14182b;       /* panel background */
+      --muted:#222742;       /* muted blocks */
+      --text:#e7e9f3;        /* primary text */
+      --sub:#aeb6d9;         /* secondary text */
+      --accent:#80d0ff;      /* accent */
+      --accent-2:#a0ffa4;    /* secondary accent */
+      --danger:#ff8b8b;      /* danger */
+      --ok:#90f2a1;          /* ok */
+    }
+    *{ box-sizing:border-box; }
+    html, body {
+      height:100%; margin:0; background:var(--bg); color:var(--text);
+      font: 14px/1.4 system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+    }
+    .app{ display:grid; grid-template-rows:auto 1fr; height:100%; }
+    .toolbar{
+      position:sticky; top:0; z-index:10; backdrop-filter:saturate(1.2) blur(6px);
+      background:linear-gradient(180deg, #14182bd0, #14182b90 60%, #14182b00);
+      border-bottom:1px solid #1e2445; padding:10px 12px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    }
+    .toolbar .group{ display:flex; gap:8px; align-items:center; background:var(--muted); padding:8px; border-radius:12px; }
+    button, .btn{
+      appearance:none; border:none; background:#1c2140; color:var(--text); padding:8px 12px; border-radius:10px;
+      cursor:pointer; transition: transform .05s ease, background .2s ease, box-shadow .2s ease; font-weight:600; letter-spacing:.2px;
+    }
+    button:hover{ background:#202756; }
+    button:active{ transform:translateY(1px); }
+    button.primary{ background:linear-gradient(180deg,#2a75ff,#2156ff); box-shadow:0 6px 20px #2156ff44 inset; }
+    button.ghost{ background:transparent; border:1px solid #2a315c; }
+    button.danger{ background:linear-gradient(180deg,#ff6363,#e85454); }
+    button.ok{ background:linear-gradient(180deg,#2bc47d,#1aa268); }
+    .switch{ display:flex; gap:8px; align-items:center; }
+    .switch input[type="checkbox"]{ width:18px; height:18px; }
+    label{ color:var(--sub); font-weight:600; }
+    .slider{ display:flex; gap:10px; align-items:center; }
+    .slider input[type="range"]{ width:160px; }
+    .slider input[type="number"]{ width:72px; padding:6px 8px; background:#0d1123; color:var(--text); border:1px solid #2a315c; border-radius:8px; }
+    .slider input[type="number"]:focus{ outline:2px solid #2a75ff55; }
+
+    .main{ display:grid; grid-template-columns:1fr 330px; gap:12px; padding:12px; height:calc(100vh - 64px); }
+    @media (max-width:1000px){ .main{ grid-template-columns:1fr; } }
+
+    .stage{ position:relative; border-radius:16px; background:radial-gradient(1200px 1200px at 20% -30%, #26306a33, transparent), var(--panel); overflow:hidden; box-shadow: inset 0 0 0 1px #1e2445; }
+    canvas{ width:100%; height:100%; display:block; }
+    .hint{ position:absolute; left:12px; bottom:12px; background:#0e1226cc; padding:8px 12px; border-radius:12px; color:var(--sub); font-size:12px; border:1px solid #1e2445; }
+
+    .side{ background:var(--panel); border-radius:16px; padding:12px; box-shadow: inset 0 0 0 1px #1e2445; overflow:auto; }
+    .side h3{ margin:8px 6px 12px; font-size:13px; letter-spacing:.4px; color:var(--sub); text-transform:uppercase; }
+    .row{ display:flex; gap:10px; align-items:center; justify-content:space-between; padding:6px 6px; border-radius:10px; }
+    .row:hover{ background:#1b2143; }
+    .row .val{ color:var(--accent); font-weight:700; min-width:46px; text-align:right; }
+    .hr{ height:1px; background:#21264a; margin:10px 0; }
+    .kbd{ font-family:ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; background:#0d1123; padding:2px 6px; border-radius:6px; border:1px solid #1b2143; color:#b9c3ff; }
+    .foot{ color:#9db3ff; font-size:12px; opacity:.9; }
+    .muted{ color:var(--sub); }
+    input[type="file"]{ display:none; }
+    .linklike{ color:var(--accent); cursor:pointer; text-decoration:underline dotted; }
+    /* Modal for equation */
+    .modal{ position:fixed; inset:0; background:#0b0f22cc; display:none; align-items:center; justify-content:center; z-index:100; }
+    .modal:not(.hidden){ display:flex; }
+    .modal-card{ width:min(800px,90vw); max-height:80vh; overflow:auto; background:var(--panel); border:1px solid #1e2445; border-radius:14px; box-shadow:0 20px 60px #0008; }
+    .modal-head{ display:flex; justify-content:space-between; align-items:center; padding:12px 14px; border-bottom:1px solid #1e2445; }
+    .modal-head .title{ font-weight:700; color:var(--text); }
+    .modal-body{ padding:14px; color:var(--text); }
+    .modal-body .formula{ background:#0d1123; padding:10px; border-radius:8px; border:1px solid #1b2143; overflow:auto; }
+    .modal-body table{ width:100%; border-collapse:collapse; margin-top:10px; }
+    .modal-body th, .modal-body td{ padding:6px 8px; border-bottom:1px solid #1e2445; text-align:right; }
+    .modal-body th:first-child, .modal-body td:first-child{ text-align:left; }
+    button.sm{ padding:6px 8px; border-radius:8px; font-size:12px; }
+  </style>
+  <!-- MathJax for LaTeX rendering -->
+  <script>
+    window.MathJax = {
+      tex: {
+        inlineMath: [['\\(','\\)'], ['$', '$']],
+        displayMath: [['\\[','\\]'], ['$$','$$']]
+      },
+      svg: { fontCache: 'global' }
+    };
+  </script>
+  <script async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-svg.js"></script>
+
+</head>
+<body>
+  <div class="app">
+    <div class="toolbar">
+      <div class="group">
+        <button id="modeDraw" title="Draw freehand" class="ok">✏️ Draw</button>
+        <button id="computeBtn" title="Compute Fourier series from your drawing" class="primary">📈 Make Fourier</button>
+        <button id="playBtn" title="Play/Pause reconstruction">▶️ Play</button>
+        <button id="clearBtn" title="Clear drawing & trace" class="danger">🗑️ Clear</button>
+      </div>
+
+      <div class="group">
+        <label class="slider" title="How many uniform samples to take from your path (affects quality & compute time)">
+          <span>Samples</span>
+          <input id="samples" type="range" min="64" max="2048" step="64" value="768" /> <input id="samplesNum" type="number" min="64" max="2048" step="1" value="768" /> <span class="val" id="samplesVal">768</span>
+        </label>
+        <label class="slider" title="How many epicycles (rotating terms) to use in the reconstruction (higher = more detail)">
+          <span>Epicycles</span>
+          <input id="epicycles" type="range" min="1" max="768" step="1" value="200" />
+          <input id="epicyclesNum" type="number" min="1" max="768" step="1" value="200" />
+          <span class="val" id="epicyclesVal">200</span>
+        </label>
+
+        <label class="slider" title="Animation speed (cycles per second)">
+          <span>Speed</span>
+          <input id="speed" type="range" min="0.1" max="5" step="0.1" value="1.0" /> <input id="speedNum" type="number" min="0.1" max="5" step="0.1" value="1.0" /> <span class="val" id="speedVal">1.0×</span>
+        </label>
+      </div>
+
+      <div class="group">
+        <label class="switch" title="Draw the epicycle circles & arms">
+          <input id="showCircles" type="checkbox" checked /> <span>Show circles</span>
+        </label>
+        <label class="switch" title="Connect the end of your stroke back to the start before sampling">
+          <input id="closePath" type="checkbox" checked /> <span>Close path</span>
+        </label>
+        <label class="switch" title="Show or hide your original drawing stroke">
+          <input id="showDrawing" type="checkbox" checked /> <span>Show drawing</span>
+        </label>
+        
+      </div>
+
+      <div class="group">
+        <button id="exportBtn" class="ghost" title="Download your drawing as JSON">💾 Export</button>
+        <label class="btn ghost" title="Load a JSON file previously exported">
+          📂 Import <input id="importFile" type="file" accept="application/json" />
+        </label>
+        <button id="fitBtn" class="ghost" title="Fit drawing to canvas">📐 Fit</button>
+        <button id="exampleBtn" class="ghost" title="Load an example star">⭐ Example</button>
+        <button id="equationBtn" class="ghost" title="Show series equation">∑ Equation</button>
+        <button id="transformBtn" class="ghost" title="Show frequency spectrum (DFT magnitude)">📊 Transform</button>
+      </div>
+    </div>
+
+    <div class="main">
+      <div class="stage">
+        <canvas id="canvas"></canvas>
+        <div class="hint">Draw with mouse or touch. Scroll to zoom; hold <span class="kbd">Space</span> and drag to pan. Click <span class="kbd">Make Fourier</span>, then <span class="kbd">Play</span>. Use sliders to refine. Double‑tap to toggle play.</div>
+      </div>
+      <aside class="side">
+        <h3>Status</h3>
+        <div class="row"><span class="muted">Points drawn</span> <span class="val" id="pointsCount">0</span></div>
+        <div class="row"><span class="muted">Samples used</span> <span class="val" id="samplesUsed">0</span></div>
+        <div class="row"><span class="muted">Epicycles used</span> <span class="val" id="epicyclesUsed">0</span></div>
+        <div class="row"><span class="muted">FPS</span> <span class="val" id="fps">—</span></div>
+        <div class="hr"></div>
+        <h3>How it works</h3>
+        <div class="muted" style="padding:6px 6px 10px;">
+          Your drawing is sampled into <span id="sExplain">768</span> equally spaced points along its length. We compute complex Fourier coefficients \(C_k\) and animate epicycles following
+          \(\sum_k C_k e^{i2\pi k t}\). Increase <em>Epicycles</em> for more detail.
+        </div>
+        <div class="hr"></div>
+        <h3>Tips</h3>
+        <ul class="muted" style="margin:0 0 12px 16px; padding:0; line-height:1.6;">
+          <li>Use <span class="kbd">Fit</span> to center/scale your drawing.</li>
+          <li>Try fewer <em>Samples</em> for faster recompute, then increase.</li>
+          <li>"Close path" is best for logos/shapes. Turn it off for open strokes.</li>
+          <li>Import/Export uses normalized coordinates so it scales to any canvas.</li>
+        </ul>
+        <div class="hr"></div>
+        <div class="foot">Built with vanilla JS. Drop this file into your site or embed in an <span class="linklike" onclick="copyEmbed()">iframe</span>.</div>
+      </aside>
+    </div>
+  </div>
+  <div id="eqModal" class="modal hidden" role="dialog" aria-modal="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div class="title">Fourier series equation</div>
+        <button id="eqClose" class="ghost sm" title="Close">✕</button>
+      </div>
+      <div id="eqContent" class="modal-body"></div>
+    </div>
+  </div>
+  <!-- Transform (spectrum) modal -->
+<div id="tfModal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <div class="modal-head">
+      <div class="title">Fourier transform — magnitude spectrum |C<sub>k</sub>|</div>
+      <button id="tfClose" class="ghost sm" title="Close">✕</button>
+    </div>
+    <div class="modal-body">
+      <div class="muted" style="margin-bottom:8px;line-height:1.5">
+        Bars show coefficient magnitudes \(|C_k|\) versus harmonic index \(k\).
+        Highlighted bars are the <em>Epicycles</em> currently used in the reconstruction.
+        DC (k=0) is the base offset.
+      </div>
+      <div style="width:100%;height:260px;">
+        <canvas id="tfCanvas" style="width:100%;height:100%;display:block"></canvas>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+  <script>
+    // ===== Canvas setup with high-DPI scaling =====
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    function resizeCanvas(){
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const rect = canvas.getBoundingClientRect();
+      canvas.width = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor(rect.height * dpr);
+      ctx.setTransform(dpr,0,0,dpr,0,0); // draw in CSS pixels
+      drawOnce();
+      updateEquationIfOpen();
+    }
+    new ResizeObserver(resizeCanvas).observe(canvas);
+
+    // ===== State =====
+    const state = {
+      mode: 'draw', // 'draw' | 'fourier'
+      drawing: [],   // raw points in canvas CSS px [{x,y},...]
+      closed: true,
+      samples: 768,
+      samplePts: [], // resampled complex pts relative to center [{x,y}]
+      coeffs: [],    // [{k,re,im,amp,phase}]
+      order: [],     // epicycle order of k values [0,1,-1,2,-2,...]
+      epicycles: 200,
+      showCircles: true,
+      showDrawing: true,
+      playing: false,
+      t: 0,
+      speed: 0.1,
+      recon: [],     // precomputed reconstruction path (for trace)
+      fadeCycles: 1.25,
+      trail: [],
+      view: { s: 1, tx: 0, ty: 0 },
+      origin: { x: 0, y: 0 },
+      fpsAvg: 0,
+      eqMode: 'complex',
+    };
+
+    // ===== UI elements =====
+    const $ = id => document.getElementById(id);
+    const samples = $('samples'), samplesVal = $('samplesVal'), samplesNum = $('samplesNum');
+    const epicycles = $('epicycles'), epicyclesVal = $('epicyclesVal'), epicyclesNum = $('epicyclesNum');
+    const speed = $('speed'), speedVal = $('speedVal'), speedNum = $('speedNum');
+    const showCircles = $('showCircles');
+    const showDrawing = $('showDrawing');
+    const closePathCB = $('closePath');
+    const modeDrawBtn = $('modeDraw');
+    const computeBtn = $('computeBtn');
+    const playBtn = $('playBtn');
+    const clearBtn = $('clearBtn');
+    const exportBtn = $('exportBtn');
+    const importFile = $('importFile');
+    const fitBtn = $('fitBtn');
+    const exampleBtn = $('exampleBtn');
+    const equationBtn = $('equationBtn');
+    const eqModal = $('eqModal');
+    const eqClose = $('eqClose');
+    const eqContent = $('eqContent');
+    const transformBtn = $('transformBtn');
+    const tfModal = $('tfModal');
+    const tfClose = $('tfClose');
+
+
+    const pointsCount = $('pointsCount');
+    const samplesUsed = $('samplesUsed');
+    const epicyclesUsed = $('epicyclesUsed');
+    const fps = $('fps');
+    const sExplain = $('sExplain');
+
+    const SPEED_SCALE = 0.1; // Display 1× equals actual 0.1×
+
+    function bindRangeNumber(rangeEl, numberEl, onInput){
+      rangeEl.addEventListener('input', ()=>{
+        numberEl.value = rangeEl.value;
+        onInput(parseFloat(rangeEl.value));
+      });
+      numberEl.addEventListener('change', ()=>{
+        let v = parseFloat(numberEl.value);
+        if(!isFinite(v)) v = parseFloat(rangeEl.value);
+        const min = parseFloat(rangeEl.min);
+        const max = parseFloat(rangeEl.max);
+        if(!Number.isNaN(min)) v = Math.max(min, v);
+        if(!Number.isNaN(max)) v = Math.min(max, v);
+        rangeEl.value = String(v);
+        numberEl.value = String(v);
+        onInput(v);
+      });
+    }
+
+    bindRangeNumber(samples, samplesNum, (v)=>{ state.samples = v|0; samplesVal.textContent = sExplain.textContent = String(v|0); if(state.mode==='fourier') recomputeFromCurrent(); });
+    bindRangeNumber(epicycles, epicyclesNum, (v)=>{state.epicycles = v|0;epicyclesVal.textContent = String(state.epicycles);state.trail = [];if(state.mode==='fourier') rebuildRecon();updateEquationIfOpen();});
+    bindRangeNumber(speed, speedNum, (v)=>{ state.speed = v * SPEED_SCALE; speedVal.textContent = v.toFixed(1) + '×'; });
+    showCircles.addEventListener('change', ()=>{ state.showCircles = showCircles.checked; });
+    showDrawing.addEventListener('change', ()=>{ state.showDrawing = showDrawing.checked; drawOnce(); });
+    closePathCB.addEventListener('change', ()=>{ state.closed = closePathCB.checked; if(state.mode==='fourier') recomputeFromCurrent(); });
+
+    modeDrawBtn.addEventListener('click', ()=>{ state.mode = 'draw'; state.playing = false; playBtn.textContent = '▶️ Play'; drawOnce(); });
+    computeBtn.addEventListener('click', ()=> computeFourier());
+    playBtn.addEventListener('click', togglePlay);
+    clearBtn.addEventListener('click', ()=>{ state.drawing = []; state.samplePts = []; state.coeffs = []; state.recon = []; state.trail = []; state.playing=false; state.t=0; pointsCount.textContent='0'; drawOnce(); });
+    exportBtn.addEventListener('click', exportJSON);
+    importFile.addEventListener('change', importJSON);
+    fitBtn.addEventListener('click', ()=>{ fitDrawingToCanvas(); drawOnce(); });
+    exampleBtn.addEventListener('click', ()=>{ loadExampleStar(); drawOnce(); });
+    equationBtn.addEventListener('click', ()=>{
+      eqContent.innerHTML = buildEquationHTML2();
+      eqModal.classList.remove('hidden');
+      if(window.MathJax){ MathJax.typesetPromise([eqContent]); }
+    });
+
+    eqClose.addEventListener('click', ()=>{ eqModal.classList.add('hidden'); });
+    eqModal.addEventListener('click', (e)=>{ if(e.target === eqModal) eqModal.classList.add('hidden'); });
+    // Equation modal toggle (complex vs real)
+    eqContent.addEventListener('click', (e)=>{
+      const id = e.target && e.target.id;
+      if(id === 'eqToggleComplex'){ state.eqMode = 'complex'; updateEquationIfOpen(); }
+      if(id === 'eqToggleReal'){ state.eqMode = 'real'; updateEquationIfOpen(); }
+    });
+    // Transform (spectrum) modal listeners
+    transformBtn.addEventListener('click', ()=>{ openTransformModal(); });
+    tfClose.addEventListener('click', ()=>{ tfModal.classList.add('hidden'); });
+    tfModal.addEventListener('click', (e)=>{ if(e.target === tfModal) tfModal.classList.add('hidden'); });
+    // Redraw spectrum on window resize if modal is visible
+    window.addEventListener('resize', ()=>{ if(!tfModal.classList.contains('hidden')) drawSpectrum(); });
+
+
+    // Scroll-to-zoom around cursor
+    canvas.addEventListener('wheel', (e)=>{
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const mx = e.clientX - rect.left; const my = e.clientY - rect.top;
+      const before = toWorld(mx, my);
+      const scaleFactor = Math.exp(-e.deltaY * 0.001); // smooth zoom
+      const v = state.view; const newS = Math.min(8, Math.max(0.2, v.s * scaleFactor));
+      // Keep cursor target fixed in screen space
+      v.tx = mx - before.x * newS; v.ty = my - before.y * newS; v.s = newS;
+      drawOnce();
+    }, {passive:false});
+
+    // Keyboard pan modifier (Space)
+    let panKey = false, panning = false, panStart = {sx:0, sy:0, tx:0, ty:0};
+    window.addEventListener('keydown', (e)=>{
+      if(e.code === 'Space' && !panKey){ panKey = true; canvas.style.cursor = panning ? 'grabbing' : 'grab'; e.preventDefault(); }
+    });
+    window.addEventListener('keyup', (e)=>{
+      if(e.code === 'Space'){ panKey = false; if(!panning) canvas.style.cursor = 'default'; }
+    });
+
+    function initializeUI(){
+      samplesVal.textContent = sExplain.textContent = samples.value; samplesNum.value = samples.value;
+      epicyclesVal.textContent = epicycles.value; epicyclesNum.value = epicycles.value;
+      speedVal.textContent = (+speed.value).toFixed(1) + '×'; speedNum.value = speed.value;
+      state.speed = +speed.value * SPEED_SCALE;
+    }
+
+    function togglePlay(){
+      if(!state.coeffs.length){ return; }
+      state.playing = !state.playing;
+      playBtn.textContent = state.playing ? '⏸️ Pause' : '▶️ Play';
+      if(state.playing){ lastTime = performance.now(); requestAnimationFrame(tick); }
+    }
+
+    // ===== Draw input (mouse/touch) =====
+    let dragging = false;
+    let lastPt = null;
+    function stagePos(evt){
+      const rect = canvas.getBoundingClientRect();
+      let sx, sy;
+      if(evt.touches && evt.touches[0]){
+        sx = evt.touches[0].clientX - rect.left; sy = evt.touches[0].clientY - rect.top;
+      } else {
+        sx = (evt.clientX ?? 0) - rect.left; sy = (evt.clientY ?? 0) - rect.top;
+      }
+      return toWorld(sx, sy);
+    }
+    canvas.addEventListener('mousedown', e=>{
+      const rect = canvas.getBoundingClientRect();
+      const panTrigger = panKey || e.button === 1; // Space+drag or middle mouse
+      if(panTrigger){
+        panning = true;
+        panStart = { sx: e.clientX - rect.left, sy: e.clientY - rect.top, tx: state.view.tx, ty: state.view.ty };
+        canvas.style.cursor = 'grabbing';
+        e.preventDefault();
+        return;
+      }
+      if(state.mode!=='draw' || e.button!==0) return;
+      dragging=true; lastPt=null; const p=stagePos(e); pushPoint(p,true);
+    });
+    canvas.addEventListener('mousemove', e=>{
+      if(panning){
+        const rect = canvas.getBoundingClientRect();
+        const sx = e.clientX - rect.left, sy = e.clientY - rect.top;
+        state.view.tx = panStart.tx + (sx - panStart.sx);
+        state.view.ty = panStart.ty + (sy - panStart.sy);
+        drawOnce();
+        return;
+      }
+      if(!dragging||state.mode!=='draw') return; const p=stagePos(e); pushPoint(p,false);
+    });
+    window.addEventListener('mouseup', ()=>{
+      if(panning){ panning=false; canvas.style.cursor = panKey ? 'grab' : 'default'; }
+      dragging=false; lastPt=null;
+    });
+    canvas.addEventListener('touchstart', e=>{ if(state.mode!=='draw') return; dragging=true; lastPt=null; pushPoint(stagePos(e),true); e.preventDefault(); }, {passive:false});
+    canvas.addEventListener('touchmove', e=>{ if(!dragging||state.mode!=='draw') return; pushPoint(stagePos(e),false); e.preventDefault(); }, {passive:false});
+    window.addEventListener('touchend', ()=>{ dragging=false; lastPt=null; }, {passive:true});
+
+    canvas.addEventListener('dblclick', ()=>{ if(state.coeffs.length){ togglePlay(); } });
+
+    function pushPoint(p, force){
+      if(force || !lastPt){ state.drawing.push(p); lastPt=p; pointsCount.textContent = String(state.drawing.length); drawOnce(); return; }
+      const dx=p.x-lastPt.x, dy=p.y-lastPt.y; const d2=dx*dx+dy*dy;
+      if(d2>2.5*2.5){ state.drawing.push(p); lastPt=p; pointsCount.textContent = String(state.drawing.length); drawOnce(); }
+    }
+
+    // ===== Fourier =====
+    function computeFourier(){
+      if(state.drawing.length<8){ alert('Draw something first 🙂'); return; }
+      // 1) Resample along arclength into N samples
+      const mid = worldCanvasCenter();
+      const pts = state.drawing.slice();
+      const N = state.samples|0;
+      const closed = !!state.closed;
+      const resampled = resampleUniform(pts, N, closed).map(p=>({x:p.x-mid.x, y:p.y-mid.y})); // make relative to center
+      state.samplePts = resampled;
+      state.origin = mid;
+
+      // 2) DFT -> coefficients for k in [-N/2 .. N/2-1]
+      const coeffs = dft(resampled);
+      state.coeffs = coeffs;
+      state.order = buildOrder(N);
+
+      // 3) Update UI and recon path, switch mode
+      state.mode = 'fourier';
+      state.t = 0; state.playing = false; playBtn.textContent = '▶️ Play'; state.trail = []; rebuildRecon();
+      drawOnce();
+      updateEquationIfOpen();
+    }
+
+    function recomputeFromCurrent(){
+      if(!state.samplePts.length) return;
+      // recompute from drawing using possibly changed samples/closed
+      computeFourier();
+    }
+
+    function rebuildRecon(){
+      state.trail = [];
+      // Precompute reconstruction curve for current epicycle count
+      const N = state.samplePts.length;
+      const origin = state.origin || canvasCenter();
+      const map = new Map(); for(const c of state.coeffs) map.set(c.k, c);
+      const base = map.get(0) || {re:0, im:0};
+      const maxRot = Math.max(0, state.coeffs.length - 1);
+      const rot = state.order.filter(k=>k!==0).slice(0, Math.min(state.epicycles, maxRot));
+      const recon = new Array(N);
+      for(let n=0; n<N; n++){
+        const t = n / N;
+        let xr = base.re, xi = base.im; // start with DC offset
+        for(let i=0;i<rot.length;i++){
+          const k = rot[i]; const c = map.get(k);
+          const ang = 2*Math.PI*k*t; const ca = Math.cos(ang), sa = Math.sin(ang);
+          const re = c.re*ca - c.im*sa;
+          const im = c.re*sa + c.im*ca;
+          xr += re; xi += im;
+        }
+        recon[n] = { x: origin.x + xr, y: origin.y + xi };
+      }
+      state.recon = recon;
+      // Update UI
+      samplesUsed.textContent = String(N);
+      const maxEpicycles = Math.max(0, state.coeffs.length - 1);
+      epicycles.max = String(maxEpicycles);
+      epicyclesNum.max = String(maxEpicycles);
+      if(state.epicycles > maxEpicycles){
+        state.epicycles = maxEpicycles; epicycles.value = maxEpicycles; epicyclesNum.value = maxEpicycles;
+      }
+      epicyclesVal.textContent = String(state.epicycles);
+      epicyclesUsed.textContent = String(state.epicycles);
+      drawOnce();
+    }
+
+    function buildOrder(N){
+      // 0, 1, -1, 2, -2, ... up to N/2
+      const order=[]; const maxK = Math.floor(N/2);
+      order.push(0);
+      for(let k=1;k<=maxK;k++){ order.push(k, -k); }
+      return order;
+    }
+
+    function dft(samples){
+      const N = samples.length;
+      const coeffs = [];
+      const half = Math.floor(N/2);
+      for(let k=-half; k<=half-1; k++){
+        let re=0, im=0;
+        for(let n=0;n<N;n++){
+          const x = samples[n].x; // real part
+          const y = samples[n].y; // imag part
+          const ang = -2*Math.PI*k*n/N; // negative for analysis
+          const ca = Math.cos(ang), sa = Math.sin(ang);
+          // multiply (x + i y) by (ca + i sa)
+          re += x*ca - y*sa;
+          im += x*sa + y*ca;
+        }
+        re /= N; im /= N;
+        const amp = Math.hypot(re, im);
+        const phase = Math.atan2(im, re);
+        coeffs.push({k,re,im,amp,phase});
+      }
+      // Sort? For epicycles we typically use interleaved order; keep unsorted list + order array.
+      return coeffs;
+    }
+
+    // ===== Geometry helpers =====
+    function canvasCenter(){
+      const rect = canvas.getBoundingClientRect();
+      return { x: rect.width/2, y: rect.height/2 };
+    }
+
+    // ===== View (pan/zoom) helpers =====
+    function applyView(){ const v = state.view; ctx.save(); ctx.translate(v.tx, v.ty); ctx.scale(v.s, v.s); }
+    function restoreView(){ ctx.restore(); }
+    function toWorld(x, y){ const v = state.view; return { x: (x - v.tx)/v.s, y: (y - v.ty)/v.s }; }
+    function toScreen(x, y){ const v = state.view; return { x: x*v.s + v.tx, y: y*v.s + v.ty }; }
+    function worldCanvasCenter(){ const c = canvasCenter(); return toWorld(c.x, c.y); }
+
+    function resampleUniform(pts, N, closed){
+      // If closed, connect last->first
+      const P = pts.slice();
+      if(closed && P.length>2){ P.push({x:P[0].x, y:P[0].y}); }
+      // Arclengths
+      const seg = []; let total=0;
+      for(let i=0;i<P.length-1;i++){
+        const dx=P[i+1].x-P[i].x, dy=P[i+1].y-P[i].y; const d=Math.hypot(dx,dy); seg.push(d); total+=d;
+      }
+      if(total===0){ return new Array(N).fill(0).map(()=>P[0]||{x:0,y:0}); }
+      const out=[]; let s=0; let j=0; let acc=0;
+      for(let i=0;i<N;i++){
+        const target = (i/ (N)) * total;
+        while(j<seg.length && acc+seg[j] < target){ acc+=seg[j]; j++; }
+        if(j>=seg.length){ out.push(P[P.length-1]); continue; }
+        const remain = target - acc; const t = Math.min(1, Math.max(0, remain/seg[j] || 0));
+        const A=P[j], B=P[j+1]; out.push({ x: A.x + (B.x-A.x)*t, y: A.y + (B.y-A.y)*t });
+      }
+      return out;
+    }
+
+    function fitDrawingToCanvas(){
+      // Recenter the VIEW (pan/zoom) so content fits; do NOT mutate drawing points or origin
+      const rect = canvas.getBoundingClientRect();
+      const pad = 24; // css px padding inside the viewport
+
+      // Collect world-space points to fit
+      const sources = [];
+      if(state.drawing && state.drawing.length) sources.push(state.drawing);
+      if(state.recon && state.recon.length) sources.push(state.recon);
+      if(state.trail && state.trail.length) sources.push(state.trail);
+      // Always include origin so epicycles aren't pushed off-screen
+      const origin = state.origin || worldCanvasCenter();
+      sources.push([{x:origin.x, y:origin.y}]);
+
+      // Compute bounds
+      let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+      for(const arr of sources){
+        for(const p of arr){
+          if(p.x<minX)minX=p.x; if(p.y<minY)minY=p.y; if(p.x>maxX)maxX=p.x; if(p.y>maxY)maxY=p.y;
+        }
+      }
+      if(!isFinite(minX) || !isFinite(minY) || !isFinite(maxX) || !isFinite(maxY)) return; // nothing to fit
+
+      const w = Math.max(1e-6, maxX-minX);
+      const h = Math.max(1e-6, maxY-minY);
+      const targetW = Math.max(1, rect.width - 2*pad);
+      const targetH = Math.max(1, rect.height - 2*pad);
+      const s = Math.min(8, Math.max(0.2, Math.min(targetW/w, targetH/h)));
+      const cxw = (minX+maxX)/2, cyw = (minY+maxY)/2;
+
+      state.view.s = s;
+      state.view.tx = rect.width/2 - cxw*s;
+      state.view.ty = rect.height/2 - cyw*s;
+    }
+
+    // ===== Import/Export =====
+    function exportJSON(){
+      if(!state.drawing.length){ alert('Nothing to export yet. Draw first.'); return; }
+      const rect = canvas.getBoundingClientRect();
+      const cx = rect.width/2, cy = rect.height/2;
+      // Save normalized coordinates relative to center, scaled to min(rect.w, rect.h)/2
+      const R = Math.min(rect.width, rect.height)/2;
+      const data = state.drawing.map(p=>({ x:(p.x-cx)/R, y:(p.y-cy)/R }));
+      const blob = new Blob([JSON.stringify({points:data, closed:state.closed}, null, 2)], {type:'application/json'});
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'fourier-drawing.json';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    function importJSON(evt){
+      const file = evt.target.files[0]; if(!file) return;
+      const reader = new FileReader();
+      reader.onload = e => {
+        try{
+          const obj = JSON.parse(String(e.target.result));
+          const pts = obj.points; if(!Array.isArray(pts) || !pts.length) throw new Error('Invalid file');
+          const rect = canvas.getBoundingClientRect();
+          const cx = rect.width/2, cy = rect.height/2; const R = Math.min(rect.width, rect.height)/2;
+          state.drawing = pts.map(p=>({ x: cx + Number(p.x)*R, y: cy + Number(p.y)*R }));
+          state.closed = !!obj.closed; closePathCB.checked = state.closed;
+          state.mode='draw'; state.playing=false; state.t=0; drawOnce();
+        }catch(err){ alert('Failed to import: '+err.message); }
+        finally { evt.target.value=''; }
+      };
+      reader.readAsText(file);
+    }
+
+    // ===== Example shape =====
+    function loadExampleStar(){
+      const rect = canvas.getBoundingClientRect();
+      const cx = rect.width/2, cy = rect.height/2; const R = Math.min(rect.width, rect.height)*0.35;
+      const pts=[]; const spikes=5; const inner=0.45; const steps=spikes*2;
+      for(let i=0;i<steps;i++){
+        const t = i/steps; const ang = -Math.PI/2 + t*2*Math.PI;
+        const r = (i%2===0? R : R*inner);
+        pts.push({ x: cx + r*Math.cos(ang), y: cy + r*Math.sin(ang)});
+      }
+      pts.push(pts[0]);
+      state.drawing = pts; state.closed = true; closePathCB.checked=true; state.mode='draw';
+      pointsCount.textContent = String(state.drawing.length);
+    }
+
+    // ===== Rendering =====
+    function drawOnce(){
+      const rect = canvas.getBoundingClientRect();
+      ctx.clearRect(0,0,rect.width,rect.height);
+      // Apply pan/zoom
+      applyView();
+      // Background grid
+      drawGrid();
+      // Draw current drawing
+      if(state.showDrawing && state.drawing.length>0){
+        ctx.lineWidth = 2.2; ctx.strokeStyle = '#88e0ff'; ctx.lineJoin='round'; ctx.lineCap='round';
+        ctx.beginPath(); const a=state.drawing; ctx.moveTo(a[0].x,a[0].y); for(let i=1;i<a.length;i++) ctx.lineTo(a[i].x,a[i].y);
+        if(state.closed) ctx.closePath(); ctx.stroke();
+      }
+      // If Fourier mode, overlay recon at t=state.t
+      if(state.coeffs.length){ drawFourierFrame(state.t); }
+      // restore view
+      restoreView();
+    }
+
+    function drawGrid(){
+      const rect = canvas.getBoundingClientRect();
+      const cx = rect.width/2, cy = rect.height/2;
+      // subtle grid
+      ctx.save();
+      ctx.strokeStyle = '#1f2547'; ctx.lineWidth=1;
+      for(let x=cx; x<rect.width; x+=50){ line(x,0,x,rect.height); }
+      for(let x=cx; x>0; x-=50){ line(x,0,x,rect.height); }
+      for(let y=cy; y<rect.height; y+=50){ line(0,y,rect.width,y); }
+      for(let y=cy; y>0; y-=50){ line(0,y,rect.width,y); }
+      // axes
+      ctx.strokeStyle = '#2a315e'; ctx.lineWidth=1.2; line(0,cy,rect.width,cy); line(cx,0,cx,rect.height);
+      ctx.restore();
+      function line(x1,y1,x2,y2){ ctx.beginPath(); ctx.moveTo(x1,y1); ctx.lineTo(x2,y2); ctx.stroke(); }
+    }
+
+    function tipXY(t){
+      const origin = state.origin || canvasCenter();
+      if(!state.coeffs.length) return origin;
+      const map = new Map(); for(const c of state.coeffs) map.set(c.k, c);
+      const base = map.get(0) || {re:0, im:0};
+      const maxRot = Math.max(0, state.coeffs.length - 1);
+      const rot = state.order.filter(k=>k!==0).slice(0, Math.min(state.epicycles, maxRot));
+      let x = origin.x + base.re, y = origin.y + base.im;
+      for(let i=0;i<rot.length;i++){
+        const k = rot[i]; const c = map.get(k);
+        const ang = 2*Math.PI*k*t; const ca=Math.cos(ang), sa=Math.sin(ang);
+        const vx = (c.re*ca - c.im*sa);
+        const vy = (c.re*sa + c.im*ca);
+        x += vx; y += vy;
+      }
+      return {x,y};
+    }
+
+    function drawFourierFrame(t){
+      const center = state.origin || canvasCenter();
+      const N = state.recon.length || state.samplePts.length || 0;
+
+      // Fading trail over the last 1.25 cycles
+      if(state.trail.length>1){
+        const L = state.fadeCycles || 1.25;
+        ctx.lineWidth = 2.2; ctx.lineJoin='round'; ctx.lineCap='round';
+        for(let i=0;i<state.trail.length-1;i++){
+          const a2 = state.trail[i+1].age;
+          const alpha = Math.max(0, 1 - a2 / L);
+          if(alpha<=0) continue;
+          ctx.strokeStyle = `rgba(168,255,182,${alpha.toFixed(3)})`;
+          ctx.beginPath();
+          const p = state.trail[i], q = state.trail[i+1];
+          ctx.moveTo(p.x, p.y); ctx.lineTo(q.x, q.y); ctx.stroke();
+        }
+      }
+
+      if(state.showCircles){
+        const map = new Map(); for(const c of state.coeffs) map.set(c.k, c);
+        const base = map.get(0) || {re:0, im:0};
+        const maxRot = Math.max(0, state.coeffs.length - 1);
+        const rot = state.order.filter(k=>k!==0).slice(0, Math.min(state.epicycles, maxRot));
+        let x = center.x + base.re, y = center.y + base.im;
+        ctx.lineCap='round';
+        // draw base offset arm (no circle)
+        if(base.re!==0 || base.im!==0){
+          ctx.strokeStyle = '#c5d2ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(center.x, center.y); ctx.lineTo(x,y); ctx.stroke();
+        }
+        for(let i=0;i<rot.length;i++){
+          const k = rot[i]; const c = map.get(k);
+          const ang = 2*Math.PI*k*t; const ca=Math.cos(ang), sa=Math.sin(ang);
+          const vx = (c.re*ca - c.im*sa);
+          const vy = (c.re*sa + c.im*ca);
+          const nx = x + vx, ny = y + vy;
+          const r = Math.hypot(vx, vy);
+          ctx.strokeStyle = '#3b4278'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(x,y,r,0,Math.PI*2); ctx.stroke();
+          ctx.strokeStyle = '#c5d2ff'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x,y); ctx.lineTo(nx,ny); ctx.stroke();
+          x = nx; y = ny;
+        }
+        ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(x,y,2.5,0,Math.PI*2); ctx.fill();
+      }
+    }
+
+    // ===== Animation loop =====
+    let lastTime = 0; let frames=0, lastFpsT=0;
+    function tick(now){
+      const dt = Math.min(0.05, (now - lastTime)/1000 || 0); // clamp dt
+      lastTime = now;
+      if(state.playing){
+        const dc = dt*state.speed;
+        state.t = (state.t + dc) % 1;
+        // Update fading trail in cycle units
+        const tip = tipXY(state.t);
+        state.trail.push({x: tip.x, y: tip.y, age: 0});
+        for(let i=0;i<state.trail.length;i++){ state.trail[i].age += dc; }
+        const L = state.fadeCycles || 1.25;
+        while(state.trail.length && state.trail[0].age > L){ state.trail.shift(); }
+        if(state.trail.length > 10000) state.trail.shift();
+        drawOnce();
+      }
+      // FPS
+      frames++; if(now - lastFpsT >= 500){ const fpsV = Math.round(frames*1000/(now-lastFpsT)); fps.textContent = fpsV.toString(); frames=0; lastFpsT=now; }
+      if(state.playing) requestAnimationFrame(tick);
+    }
+
+    // ===== Utilities =====
+    // ===== Equation builder v2 (complex vs real toggle) =====
+function buildEquationHTML2(){
+  const mode = state.eqMode || 'complex';
+  const has = !!state.coeffs.length;
+  const N = state.samplePts.length || 0;
+  const maxRot = Math.max(0, state.coeffs.length - 1);
+  const kList = has ? state.order.filter(k=>k!==0).slice(0, Math.min(state.epicycles, maxRot)) : [];
+  const map = new Map(); if(has){ for(const c of state.coeffs) map.set(c.k, c); }
+  const base = has ? (map.get(0) || {re:0, im:0, amp:0, phase:0}) : {re:0, im:0, amp:0, phase:0};
+  const fmt = (n,d=4)=> (Math.abs(n) < 1e-12 ? 0 : n).toFixed(d);
+
+  const toggle = `
+<div style="display:flex;gap:8px;align-items:center;margin:0 0 10px">
+  <button id="eqToggleComplex" class="${mode==='complex'?'primary sm':'ghost sm'}">Epicycle (complex)</button>
+  <button id="eqToggleReal" class="${mode==='real'?'primary sm':'ghost sm'}">Sine/Cosine (real)</button>
+</div>`;
+
+  const legend = `
+<div class="muted" style="margin:6px 0 8px;line-height:1.6">
+  <b>What everything means:</b>
+  <div>\(z(t)=x(t)+i\,y(t)\) is your 2D curve; one loop is \(t\in[0,1)\).</div>
+  <div>\(C_k=a_k+i b_k\) is the complex coefficient; \(|C_k|\) is the circle radius; \(\phi_k=\arg C_k\) is its starting angle.</div>
+  <div>\(k\) is the harmonic index (rotations per loop). \(C_0\) is the DC offset (first arm).</div>
+  <div>\(E\) is the Epicycles count — how many nonzero \(k\) terms are used in the reconstruction.</div>
+</div>`;
+
+  if(!has){
+    const baseForm = mode==='complex'
+      ? `
+<div class="formula">\\[ z(t) = C_0 + \\sum_{k} C_k \\, e^{i 2\\pi k t} \\]</div>
+<div class="formula">\\[ C_k = \\frac{1}{N} \\sum_{n=0}^{N-1} z_n \\, e^{-i 2\\pi k n / N} \\]</div>`
+      : `
+<div class="formula">\\[ x(t) = \\mathrm{Re}(C_0) + \\sum_k \\big( \\mathrm{Re}(C_k)\\cos 2\\pi k t - \\mathrm{Im}(C_k)\\sin 2\\pi k t \\big) \\]</div>
+<div class="formula">\\[ y(t) = \\mathrm{Im}(C_0) + \\sum_k \\big( \\mathrm{Re}(C_k)\\sin 2\\pi k t + \\mathrm{Im}(C_k)\\cos 2\\pi k t \\big) \\]</div>`;
+    return `${toggle}
+<p class="muted">Compute the Fourier series first (click <span class="kbd">Make Fourier</span>).</p>
+${legend}
+${baseForm}`;
+  }
+
+  // Build rows for the coefficient table
+  let rows;
+  if(mode==='complex'){
+    rows = `<tr><td>0</td><td>${fmt(base.re)}</td><td>${fmt(base.im)}</td><td>${fmt(base.amp)}</td><td>${fmt(base.phase)}</td></tr>`;
+    for(const k of kList){ const c = map.get(k) || {re:0,im:0,amp:0,phase:0}; rows += `<tr><td>${k}</td><td>${fmt(c.re)}</td><td>${fmt(c.im)}</td><td>${fmt(c.amp)}</td><td>${fmt(c.phase)}</td></tr>`; }
+  } else {
+    rows = `<tr><td>0</td><td>${fmt(base.re)}</td><td>${fmt(base.im)}</td></tr>`;
+    for(const k of kList){ const c = map.get(k) || {re:0,im:0}; rows += `<tr><td>${k}</td><td>${fmt(c.re)}</td><td>${fmt(c.im)}</td></tr>`; }
+  }
+  const Kset = kList.join(', ');
+
+  const header = mode==='complex'
+    ? `
+<div class="muted" style="margin-bottom:8px">Using E = ${kList.length} epicycles (rotating terms); N = ${N} samples.</div>
+<div class="formula">\\[ z(t) = C_0 + \\sum_{k\\in K} C_k \\, e^{i 2\\pi k t}, \\quad 0 \\le t < 1 \\]</div>
+<div class="formula">\\[ C_k = \\frac{1}{N} \\sum_{n=0}^{N-1} z_n \\, e^{-i 2\\pi k n / N} \\]</div>`
+    : `
+<div class="muted" style="margin-bottom:8px">Using E = ${kList.length} epicycles; expanded into real components.</div>
+<div class="formula">\\[ x(t) = \\mathrm{Re}(C_0) + \\sum_{k \\in K} \\big( \\mathrm{Re}(C_k)\\cos 2\\pi k t - \\mathrm{Im}(C_k)\\sin 2\\pi k t \\big) \\]</div>
+<div class="formula">\\[ y(t) = \\mathrm{Im}(C_0) + \\sum_{k \\in K} \\big( \\mathrm{Re}(C_k)\\sin 2\\pi k t + \\mathrm{Im}(C_k)\\cos 2\\pi k t \\big) \\]</div>`;
+
+  const table = mode==='complex'
+    ? `<table><thead><tr><th>k</th><th>Re(Ck)</th><th>Im(Ck)</th><th>|Ck|</th><th>phase (rad)</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<table><thead><tr><th>k</th><th>a_k=Re(Ck)</th><th>b_k=Im(Ck)</th></tr></thead><tbody>${rows}</tbody></table>`;
+
+  const footer = `<div class="muted" style="margin:.5rem 0 0.2rem">K = { ${Kset} } (interleaved order: 1, −1, 2, −2, …)</div>
+<div class="muted" style="margin:.2rem 0 0">Hint: |C_k| is the radius of the k-th circle; phase sets the arm’s starting angle.</div>`;
+
+  return `${toggle}${legend}${header}${table}${footer}`;
+}
+
+    function updateEquationIfOpen(){
+      if(eqModal && !eqModal.classList.contains('hidden')){
+        eqContent.innerHTML = buildEquationHTML2();
+        if(window.MathJax){ MathJax.typesetPromise([eqContent]); }
+      }
+    }
+
+
+    function copyEmbed(){
+      const code = `<iframe srcdoc="${encodeURI(document.documentElement.outerHTML).replace(/"/g,'&quot;')}" style="width:100%;height:600px;border:0;border-radius:12px;overflow:hidden"></iframe>`;
+      navigator.clipboard.writeText(code).then(()=>{
+        alert('Embed iframe copied to clipboard! Paste it into your page.');
+      });
+    }
+
+    function openTransformModal(){
+      tfModal.classList.remove('hidden');
+      drawSpectrum();
+    }
+
+    function drawSpectrum(){
+      const canvas = document.getElementById('tfCanvas');
+      if(!canvas) return;
+      const ctx2 = canvas.getContext('2d');
+
+      // Size to CSS box with DPR scaling
+      const rect = canvas.getBoundingClientRect();
+      const dpr = Math.max(1, window.devicePixelRatio||1);
+      canvas.width = Math.floor(rect.width * dpr);
+      canvas.height = Math.floor(rect.height * dpr);
+      ctx2.setTransform(dpr,0,0,dpr,0,0);
+      ctx2.clearRect(0,0,rect.width,rect.height);
+
+      // If not computed yet
+      if(!state.coeffs.length){
+        ctx2.fillStyle = '#aeb6d9';
+        ctx2.font = '13px system-ui, -apple-system, Segoe UI, Roboto';
+        ctx2.fillText('Compute the Fourier series first (click “Make Fourier”).', 12, 24);
+        return;
+      }
+
+      // Build magnitude list sorted by k (includes k=0)
+      const mags = state.coeffs
+        .map(c => ({ k: c.k, amp: Math.hypot(c.re, c.im) }))
+        .sort((a,b)=>a.k-b.k);
+      const n = mags.length;
+
+      // Which k are used by current epicycle count?
+      const used = new Set(
+        state.order
+          .filter(k=>k!==0)
+          .slice(0, Math.min(state.epicycles, Math.max(0, n-1)))
+      );
+
+      const maxAmp = Math.max(1e-9, ...mags.map(m=>m.amp));
+
+      // Layout
+      const pad = {l:38, r:8, t:8, b:22};
+      const W = Math.max(1, rect.width  - pad.l - pad.r);
+      const H = Math.max(1, rect.height - pad.t - pad.b);
+      const barW = Math.max(1, W / n);
+
+      // Grid
+      ctx2.strokeStyle = '#1f2547'; ctx2.lineWidth = 1;
+      for(let gy=0; gy<=4; gy++){
+        const y = pad.t + (gy/4)*H;
+        ctx2.beginPath(); ctx2.moveTo(pad.l, y); ctx2.lineTo(pad.l+W, y); ctx2.stroke();
+      }
+
+      // Axis labels
+      ctx2.fillStyle = '#aeb6d9'; ctx2.font = '12px system-ui, -apple-system, Segoe UI, Roboto';
+      ctx2.fillText('|C_k|', 6, pad.t + 12);
+      ctx2.fillText('k', pad.l + W - 6, pad.t + H + 16);
+
+      // Zero (k=0) vertical line
+      const zeroIdx = mags.findIndex(m=>m.k===0);
+      if(zeroIdx>=0){
+        ctx2.strokeStyle = '#2a315e'; ctx2.lineWidth = 1.2;
+        const zx = pad.l + (zeroIdx + 0.45) * barW;
+        ctx2.beginPath(); ctx2.moveTo(zx, pad.t); ctx2.lineTo(zx, pad.t + H); ctx2.stroke();
+      }
+
+      // Bars
+      for(let i=0;i<n;i++){
+        const m = mags[i];
+        const h = (m.amp / maxAmp) * H;
+        const x = pad.l + i*barW;
+        const y = pad.t + (H - h);
+        ctx2.fillStyle = used.has(m.k) ? '#80d0ff' : '#3b4278';
+        ctx2.fillRect(x + 0.05*barW, y, 0.9*barW, h);
+      }
+
+      // Legend
+      ctx2.fillStyle = '#aeb6d9';
+      ctx2.font = '12px system-ui, -apple-system, Segoe UI, Roboto';
+      ctx2.fillText('Used epicycles', pad.l, pad.t + 14 + H);
+      ctx2.fillStyle = '#80d0ff'; ctx2.fillRect(pad.l + 92, pad.t + 6 + H, 14, 8);
+      ctx2.fillStyle = '#aeb6d9'; ctx2.fillText('others', pad.l + 114, pad.t + 14 + H);
+      ctx2.fillStyle = '#3b4278'; ctx2.fillRect(pad.l + 164, pad.t + 6 + H, 14, 8);
+    }
+
+
+    // ===== Self-tests (lightweight sanity checks) =====
+    function runSelfTests(){
+      try{
+        console.groupCollapsed('Fourier Tool — self-tests');
+        console.assert(document.getElementById('termsVal') === null, 'No #termsVal element should exist');
+        console.assert(typeof termsVal === 'undefined', 'termsVal variable should be undefined');
+        console.assert(!!document.getElementById('epicyclesVal'), '#epicyclesVal should exist');
+        console.assert(!!document.getElementById('epicyclesUsed'), '#epicyclesUsed should exist');
+        console.assert(typeof dft==='function' && typeof buildOrder==='function', 'Core functions present');
+        console.groupEnd();
+      }catch(e){ console.error('Self-tests failed', e); }
+    }
+
+    // ===== Init =====
+    initializeUI();
+    resizeCanvas();
+    loadExampleStar();
+    runSelfTests();
+    // (Optional) auto-compute from example for fast start
+    // computeFourier();
+  </script>
+</body>
+</html>
