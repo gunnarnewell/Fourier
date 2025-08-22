@@ -423,13 +423,14 @@
     function computeFourier(){
       if(state.drawing.length<8){ alert('Draw something first 🙂'); return; }
       // 1) Resample along arclength into N samples
-      // Always keep Fourier origin at the global (0,0) regardless of view pan/zoom
-      const origin = { x: 0, y: 0 };
+      // Center the samples at their centroid so the first epicycle starts at the origin
       const pts = state.drawing.slice();
       const N = state.samples|0;
       const closed = !!state.closed;
-      const resampled = resampleUniform(pts, N, closed)
-        .map(p=>({ x:p.x-origin.x, y:p.y-origin.y })); // make relative to origin
+      const raw = resampleUniform(pts, N, closed);
+      const origin = raw.reduce((o,p)=>{ o.x += p.x; o.y += p.y; return o; }, {x:0, y:0});
+      origin.x /= raw.length; origin.y /= raw.length;
+      const resampled = raw.map(p=>({ x: p.x - origin.x, y: p.y - origin.y }));
       state.samplePts = resampled;
       state.origin = origin;
 
@@ -955,3 +956,4 @@ ${baseForm}`;
   </script>
 </body>
 </html>
+
