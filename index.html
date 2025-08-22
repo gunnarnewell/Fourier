@@ -423,13 +423,15 @@
     function computeFourier(){
       if(state.drawing.length<8){ alert('Draw something first 🙂'); return; }
       // 1) Resample along arclength into N samples
-      const mid = worldCanvasCenter();
+      // Always keep Fourier origin at the global (0,0) regardless of view pan/zoom
+      const origin = { x: 0, y: 0 };
       const pts = state.drawing.slice();
       const N = state.samples|0;
       const closed = !!state.closed;
-      const resampled = resampleUniform(pts, N, closed).map(p=>({x:p.x-mid.x, y:p.y-mid.y})); // make relative to center
+      const resampled = resampleUniform(pts, N, closed)
+        .map(p=>({ x:p.x-origin.x, y:p.y-origin.y })); // make relative to origin
       state.samplePts = resampled;
-      state.origin = mid;
+      state.origin = origin;
 
       // 2) DFT -> coefficients for k in [-N/2 .. N/2-1]
       const coeffs = dft(resampled);
