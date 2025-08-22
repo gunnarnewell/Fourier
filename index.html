@@ -240,6 +240,9 @@
       origin: { x: 0, y: 0 },
       fpsAvg: 0,
       eqMode: 'complex',
+      simplifyThresh: 0.1,
+      rawCoeffs: [],
+      rawOrder: [],
     };
 
     // ===== UI elements =====
@@ -303,7 +306,20 @@
     modeDrawBtn.addEventListener('click', ()=>{ state.mode = 'draw'; state.playing = false; playBtn.textContent = '▶️ Play'; drawOnce(); });
     computeBtn.addEventListener('click', ()=> computeFourier());
     playBtn.addEventListener('click', togglePlay);
-    clearBtn.addEventListener('click', ()=>{ state.drawing = []; state.samplePts = []; state.coeffs = []; state.recon = []; state.trail = []; state.playing=false; state.t=0; pointsCount.textContent='0'; drawOnce(); });
+    clearBtn.addEventListener('click', ()=>{
+      state.drawing = [];
+      state.samplePts = [];
+      state.coeffs = [];
+      state.rawCoeffs = [];
+      state.order = [];
+      state.rawOrder = [];
+      state.recon = [];
+      state.trail = [];
+      state.playing = false;
+      state.t = 0;
+      pointsCount.textContent = '0';
+      drawOnce();
+    });
     exportBtn.addEventListener('click', exportJSON);
     importFile.addEventListener('change', importJSON);
     fitBtn.addEventListener('click', ()=>{ fitDrawingToCanvas(); drawOnce(); });
@@ -316,11 +332,20 @@
 
     eqClose.addEventListener('click', ()=>{ eqModal.classList.add('hidden'); });
     eqModal.addEventListener('click', (e)=>{ if(e.target === eqModal) eqModal.classList.add('hidden'); });
-    // Equation modal toggle (complex vs real)
+    // Equation modal toggle (complex vs real vs z(t) real)
     eqContent.addEventListener('click', (e)=>{
-      const id = e.target && e.target.id;
+      const btn = e.target && e.target.closest('button');
+      const id = btn && btn.id;
       if(id === 'eqToggleComplex'){ state.eqMode = 'complex'; updateEquationIfOpen(); }
       if(id === 'eqToggleReal'){ state.eqMode = 'real'; updateEquationIfOpen(); }
+      if(id === 'eqToggleZReal'){ state.eqMode = 'zreal'; updateEquationIfOpen(); }
+      if(id === 'simplifyBtn'){
+        const v = parseFloat(document.getElementById('simplifyThresh').value);
+        simplifyCoeffs(isNaN(v)?0:v);
+      }
+      if(id === 'resetBtn'){
+        resetCoeffs();
+      }
     });
     // Transform (spectrum) modal listeners
     transformBtn.addEventListener('click', ()=>{ openTransformModal(); });
@@ -437,7 +462,10 @@
       // 2) DFT -> coefficients for k in [-N/2 .. N/2-1]
       const coeffs = dft(resampled);
       state.coeffs = coeffs;
-      state.order = buildOrder(N);
+      state.rawCoeffs = coeffs.slice();
+      const order = buildOrder(N);
+      state.order = order;
+      state.rawOrder = order.slice();
 
       // 3) Update UI and recon path, switch mode
       state.mode = 'fourier';
@@ -486,6 +514,34 @@
       epicyclesVal.textContent = String(state.epicycles);
       epicyclesUsed.textContent = String(state.epicycles);
       drawOnce();
+    }
+
+    function simplifyCoeffs(th){
+      if(!state.coeffs.length) return;
+      const t = Math.abs(th)||0;
+      state.simplifyThresh = t;
+      state.coeffs = state.coeffs.filter(c => c.k === 0 || c.amp >= t);
+      if(!state.coeffs.find(c=>c.k===0)){
+        state.coeffs.unshift({k:0,re:0,im:0,amp:0,phase:0});
+      }
+      const ks = new Set(state.coeffs.map(c=>c.k));
+      const maxK = Math.max(0, ...Array.from(ks, k=>Math.abs(k)));
+      const order=[0];
+      for(let k=1;k<=maxK;k++){
+        if(ks.has(k)) order.push(k);
+        if(ks.has(-k)) order.push(-k);
+      }
+      state.order = order;
+      rebuildRecon();
+      updateEquationIfOpen();
+    }
+
+    function resetCoeffs(){
+      if(!state.rawCoeffs.length) return;
+      state.coeffs = state.rawCoeffs.slice();
+      state.order = state.rawOrder.slice();
+      rebuildRecon();
+      updateEquationIfOpen();
     }
 
     function buildOrder(N){
@@ -775,6 +831,17 @@ function buildEquationHTML2(){
 <div style="display:flex;gap:8px;align-items:center;margin:0 0 10px">
   <button id="eqToggleComplex" class="${mode==='complex'?'primary sm':'ghost sm'}">Epicycle (complex)</button>
   <button id="eqToggleReal" class="${mode==='real'?'primary sm':'ghost sm'}">Sine/Cosine (real)</button>
+  <button id="eqToggleZReal" class="${mode==='zreal'?'primary sm':'ghost sm'}">z(t) (real)</button>
+</div>`;
+
+  const simplify = `
+<div style="display:flex;gap:8px;align-items:center;margin:0 0 10px">
+  <label class="muted" for="simplifyThresh">Min |C<sub>k</sub>|</label>
+  <input id="simplifyThresh" type="number" step="0.01" value="${state.simplifyThresh}" style="width:60px">
+  <div style="display:flex;gap:8px">
+    <button id="simplifyBtn" type="button" class="ghost sm">Simplify</button>
+    <button id="resetBtn" type="button" class="ghost sm">Reset</button>
+  </div>
 </div>`;
 
   const legend = `
@@ -787,13 +854,19 @@ function buildEquationHTML2(){
 </div>`;
 
   if(!has){
-    const baseForm = mode==='complex'
-      ? `
+    let baseForm;
+    if(mode==='complex'){
+      baseForm = `
 <div class="formula">\\[ z(t) = C_0 + \\sum_{k} C_k \\, e^{i 2\\pi k t} \\]</div>
-<div class="formula">\\[ C_k = \\frac{1}{N} \\sum_{n=0}^{N-1} z_n \\, e^{-i 2\\pi k n / N} \\]</div>`
-      : `
+<div class="formula">\\[ C_k = \\frac{1}{N} \\sum_{n=0}^{N-1} z_n \\, e^{-i 2\\pi k n / N} \\]</div>`;
+    } else if(mode==='real'){
+      baseForm = `
 <div class="formula">\\[ x(t) = \\mathrm{Re}(C_0) + \\sum_k \\big( \\mathrm{Re}(C_k)\\cos 2\\pi k t - \\mathrm{Im}(C_k)\\sin 2\\pi k t \\big) \\]</div>
 <div class="formula">\\[ y(t) = \\mathrm{Im}(C_0) + \\sum_k \\big( \\mathrm{Re}(C_k)\\sin 2\\pi k t + \\mathrm{Im}(C_k)\\cos 2\\pi k t \\big) \\]</div>`;
+    } else {
+      baseForm = `
+<div class="formula">\\[ z(t) = \\mathrm{Re}(C_0) + i\\,\\mathrm{Im}(C_0) + \\sum_k \big( (\\mathrm{Re}(C_k)\\cos 2\\pi k t - \\mathrm{Im}(C_k)\\sin 2\\pi k t) + i(\\mathrm{Re}(C_k)\\sin 2\\pi k t + \\mathrm{Im}(C_k)\\cos 2\\pi k t) \big) \\]</div>`;
+    }
     return `${toggle}
 <p class="muted">Compute the Fourier series first (click <span class="kbd">Make Fourier</span>).</p>
 ${legend}
@@ -811,15 +884,50 @@ ${baseForm}`;
   }
   const Kset = kList.join(', ');
 
-  const header = mode==='complex'
-    ? `
+  let header;
+  if(mode==='complex'){
+    header = `
 <div class="muted" style="margin-bottom:8px">Using E = ${kList.length} epicycles (rotating terms); N = ${N} samples.</div>
 <div class="formula">\\[ z(t) = C_0 + \\sum_{k\\in K} C_k \\, e^{i 2\\pi k t}, \\quad 0 \\le t < 1 \\]</div>
-<div class="formula">\\[ C_k = \\frac{1}{N} \\sum_{n=0}^{N-1} z_n \\, e^{-i 2\\pi k n / N} \\]</div>`
-    : `
+<div class="formula">\\[ C_k = \\frac{1}{N} \\sum_{n=0}^{N-1} z_n \\, e^{-i 2\\pi k n / N} \\]</div>`;
+  } else if(mode==='real'){
+    header = `
 <div class="muted" style="margin-bottom:8px">Using E = ${kList.length} epicycles; expanded into real components.</div>
 <div class="formula">\\[ x(t) = \\mathrm{Re}(C_0) + \\sum_{k \\in K} \\big( \\mathrm{Re}(C_k)\\cos 2\\pi k t - \\mathrm{Im}(C_k)\\sin 2\\pi k t \\big) \\]</div>
 <div class="formula">\\[ y(t) = \\mathrm{Im}(C_0) + \\sum_{k \\in K} \\big( \\mathrm{Re}(C_k)\\sin 2\\pi k t + \\mathrm{Im}(C_k)\\cos 2\\pi k t \\big) \\]</div>`;
+  } else {
+    // Build z(t) using explicit real-number coefficients from the table
+    const zTerms = [];
+    let zExpr = `${fmt(base.re)} ${base.im>=0?'+':'-'} i${fmt(Math.abs(base.im))}`;
+    for(const k of kList){
+      const c = map.get(k) || {re:0, im:0};
+      const arg = `2\\pi ${k>=0?k:`(${k})`} t`;
+      let realPart = '';
+      if(Math.abs(c.re) > 1e-12) realPart += `${c.re>=0?'':'-'}${fmt(Math.abs(c.re))}\\cos(${arg})`;
+      if(Math.abs(c.im) > 1e-12){
+        if(realPart) realPart += c.im>=0 ? ' - ' : ' + ';
+        else if(c.im < 0) realPart += '-';
+        realPart += `${fmt(Math.abs(c.im))}\\sin(${arg})`;
+      }
+      if(realPart==='') realPart = '0';
+
+      let imagPart = '';
+      if(Math.abs(c.re) > 1e-12) imagPart += `${c.re>=0?'':'-'}${fmt(Math.abs(c.re))}\\sin(${arg})`;
+      if(Math.abs(c.im) > 1e-12){
+        if(imagPart) imagPart += c.im>=0 ? ' + ' : ' - ';
+        else if(c.im < 0) imagPart += '-';
+        imagPart += `${fmt(Math.abs(c.im))}\\cos(${arg})`;
+      }
+      if(imagPart==='') imagPart = '0';
+
+      zTerms.push(`(${realPart}) + i(${imagPart})`);
+    }
+    if(zTerms.length){ zExpr += ' + ' + zTerms.join(' + '); }
+
+    header = `
+<div class="muted" style="margin-bottom:8px">Using E = ${kList.length} epicycles; expressed as z(t) with real coefficients.</div>
+<div class="formula">\\[ z(t) = ${zExpr} \\]</div>`;
+  }
 
   const table = mode==='complex'
     ? `<table><thead><tr><th>k</th><th>Re(Ck)</th><th>Im(Ck)</th><th>|Ck|</th><th>phase (rad)</th></tr></thead><tbody>${rows}</tbody></table>`
@@ -828,7 +936,7 @@ ${baseForm}`;
   const footer = `<div class="muted" style="margin:.5rem 0 0.2rem">K = { ${Kset} } (interleaved order: 1, −1, 2, −2, …)</div>
 <div class="muted" style="margin:.2rem 0 0">Hint: |C_k| is the radius of the k-th circle; phase sets the arm’s starting angle.</div>`;
 
-  return `${toggle}${legend}${header}${table}${footer}`;
+  return `${toggle}${simplify}${legend}${header}${table}${footer}`;
 }
 
     function updateEquationIfOpen(){
