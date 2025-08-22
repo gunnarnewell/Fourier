@@ -139,7 +139,7 @@
         <button id="fitBtn" class="ghost" title="Fit drawing to canvas">📐 Fit</button>
         <button id="exampleBtn" class="ghost" title="Load an example star">⭐ Example</button>
         <button id="equationBtn" class="ghost" title="Show series equation">∑ Equation</button>
-        <button id="transformBtn" class="ghost" title="Show frequency spectrum (DFT magnitude)">📊 Transform</button>
+        <button id="transformBtn" class="ghost" title="Plot real series f(t) = x(t) + y(t)">📊 Plot Cycle</button>
       </div>
     </div>
 
@@ -182,18 +182,17 @@
       <div id="eqContent" class="modal-body"></div>
     </div>
   </div>
-  <!-- Transform (spectrum) modal -->
+  <!-- Transform (real plot) modal -->
 <div id="tfModal" class="modal hidden" role="dialog" aria-modal="true">
   <div class="modal-card">
     <div class="modal-head">
-      <div class="title">Fourier transform — magnitude spectrum |C<sub>k</sub>|</div>
+      <div class="title">Real Fourier series plot \(f(t) = x(t) + y(t)\)</div>
       <button id="tfClose" class="ghost sm" title="Close">✕</button>
     </div>
     <div class="modal-body">
       <div class="muted" style="margin-bottom:8px;line-height:1.5">
-        Bars show coefficient magnitudes \(|C_k|\) versus harmonic index \(k\).
-        Highlighted bars are the <em>Epicycles</em> currently used in the reconstruction.
-        DC (k=0) is the base offset.
+        The curve shows the real function \(f(t) = x(t) + y(t)\) rebuilt from the
+        Fourier series, plotted on a Cartesian plane.
       </div>
       <div style="width:100%;height:260px;">
         <canvas id="tfCanvas" style="width:100%;height:100%;display:block"></canvas>
@@ -322,12 +321,12 @@
       if(id === 'eqToggleComplex'){ state.eqMode = 'complex'; updateEquationIfOpen(); }
       if(id === 'eqToggleReal'){ state.eqMode = 'real'; updateEquationIfOpen(); }
     });
-    // Transform (spectrum) modal listeners
+    // Transform plot modal listeners
     transformBtn.addEventListener('click', ()=>{ openTransformModal(); });
     tfClose.addEventListener('click', ()=>{ tfModal.classList.add('hidden'); });
     tfModal.addEventListener('click', (e)=>{ if(e.target === tfModal) tfModal.classList.add('hidden'); });
-    // Redraw spectrum on window resize if modal is visible
-    window.addEventListener('resize', ()=>{ if(!tfModal.classList.contains('hidden')) drawSpectrum(); });
+    // Redraw plot on window resize if modal is visible
+    window.addEventListener('resize', ()=>{ if(!tfModal.classList.contains('hidden')) drawRealPlot(); });
 
 
     // Scroll-to-zoom around cursor
@@ -848,10 +847,10 @@ ${baseForm}`;
 
     function openTransformModal(){
       tfModal.classList.remove('hidden');
-      drawSpectrum();
+      drawRealPlot();
     }
 
-    function drawSpectrum(){
+    function drawRealPlot(){
       const canvas = document.getElementById('tfCanvas');
       if(!canvas) return;
       const ctx2 = canvas.getContext('2d');
@@ -872,66 +871,56 @@ ${baseForm}`;
         return;
       }
 
-      // Build magnitude list sorted by k (includes k=0)
-      const mags = state.coeffs
-        .map(c => ({ k: c.k, amp: Math.hypot(c.re, c.im) }))
-        .sort((a,b)=>a.k-b.k);
-      const n = mags.length;
-
-      // Which k are used by current epicycle count?
-      const used = new Set(
-        state.order
-          .filter(k=>k!==0)
-          .slice(0, Math.min(state.epicycles, Math.max(0, n-1)))
-      );
-
-      const maxAmp = Math.max(1e-9, ...mags.map(m=>m.amp));
+     // Compute real series values f(t) = x(t) + y(t)
+      const samples = Math.max(32, state.samplePts.length || 0);
+      const values = new Array(samples);
+      let min = Infinity, max = -Infinity;
+      for(let i=0;i<samples;i++){
+        const t = i / (samples - 1);
+        let x = 0, y = 0;
+        for(const c of state.coeffs){
+          const ang = 2*Math.PI*c.k*t;
+          const ca = Math.cos(ang), sa = Math.sin(ang);
+          x += c.re*ca - c.im*sa;
+          y += c.re*sa + c.im*ca;
+        }
+        const f = x + y;
+        values[i] = f;
+        if(f<min) min = f;
+        if(f>max) max = f;
+      }
+      if(!isFinite(min) || !isFinite(max)) return;
 
       // Layout
       const pad = {l:38, r:8, t:8, b:22};
       const W = Math.max(1, rect.width  - pad.l - pad.r);
       const H = Math.max(1, rect.height - pad.t - pad.b);
-      const barW = Math.max(1, W / n);
 
-      // Grid
+      // Axes
       ctx2.strokeStyle = '#1f2547'; ctx2.lineWidth = 1;
-      for(let gy=0; gy<=4; gy++){
-        const y = pad.t + (gy/4)*H;
-        ctx2.beginPath(); ctx2.moveTo(pad.l, y); ctx2.lineTo(pad.l+W, y); ctx2.stroke();
+      // y-axis at t=0
+      ctx2.beginPath(); ctx2.moveTo(pad.l, pad.t); ctx2.lineTo(pad.l, pad.t + H); ctx2.stroke();
+      // x-axis at f=0 if within range
+      const zeroY = pad.t + H - ((0 - min) / (max - min || 1)) * H;
+      if(zeroY >= pad.t && zeroY <= pad.t + H){
+        ctx2.beginPath(); ctx2.moveTo(pad.l, zeroY); ctx2.lineTo(pad.l + W, zeroY); ctx2.stroke();
       }
 
       // Axis labels
       ctx2.fillStyle = '#aeb6d9'; ctx2.font = '12px system-ui, -apple-system, Segoe UI, Roboto';
-      ctx2.fillText('|C_k|', 6, pad.t + 12);
-      ctx2.fillText('k', pad.l + W - 6, pad.t + H + 16);
+      ctx2.fillText('f(t)', 6, pad.t + 12);
+      ctx2.fillText('t', pad.l + W - 6, pad.t + H + 16);
 
-      // Zero (k=0) vertical line
-      const zeroIdx = mags.findIndex(m=>m.k===0);
-      if(zeroIdx>=0){
-        ctx2.strokeStyle = '#2a315e'; ctx2.lineWidth = 1.2;
-        const zx = pad.l + (zeroIdx + 0.45) * barW;
-        ctx2.beginPath(); ctx2.moveTo(zx, pad.t); ctx2.lineTo(zx, pad.t + H); ctx2.stroke();
+      // Plot curve
+      ctx2.strokeStyle = '#80d0ff'; ctx2.lineWidth = 2; ctx2.beginPath();
+      for(let i=0;i<samples;i++){
+        const t = i / (samples - 1);
+        const x = pad.l + t * W;
+        const y = pad.t + H - ((values[i] - min) / (max - min || 1)) * H;
+        if(i===0) ctx2.moveTo(x, y); else ctx2.lineTo(x, y);
       }
-
-      // Bars
-      for(let i=0;i<n;i++){
-        const m = mags[i];
-        const h = (m.amp / maxAmp) * H;
-        const x = pad.l + i*barW;
-        const y = pad.t + (H - h);
-        ctx2.fillStyle = used.has(m.k) ? '#80d0ff' : '#3b4278';
-        ctx2.fillRect(x + 0.05*barW, y, 0.9*barW, h);
-      }
-
-      // Legend
-      ctx2.fillStyle = '#aeb6d9';
-      ctx2.font = '12px system-ui, -apple-system, Segoe UI, Roboto';
-      ctx2.fillText('Used epicycles', pad.l, pad.t + 14 + H);
-      ctx2.fillStyle = '#80d0ff'; ctx2.fillRect(pad.l + 92, pad.t + 6 + H, 14, 8);
-      ctx2.fillStyle = '#aeb6d9'; ctx2.fillText('others', pad.l + 114, pad.t + 14 + H);
-      ctx2.fillStyle = '#3b4278'; ctx2.fillRect(pad.l + 164, pad.t + 6 + H, 14, 8);
+      ctx2.stroke();
     }
-
 
     // ===== Self-tests (lightweight sanity checks) =====
     function runSelfTests(){
@@ -956,5 +945,6 @@ ${baseForm}`;
   </script>
 </body>
 </html>
+
 
 
