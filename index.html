@@ -132,9 +132,9 @@
       </div>
 
       <div class="group">
-        <button id="exportBtn" class="ghost" title="Download your drawing as JSON">💾 Export</button>
-        <label class="btn ghost" title="Load a JSON file previously exported">
-          📂 Import <input id="importFile" type="file" accept="application/json" />
+        <button id="exportBtn" class="ghost" title="Download your drawing as SVG">💾 Export</button>
+        <label class="btn ghost" title="Load an SVG file previously exported">
+          📂 Import <input id="importFile" type="file" accept="image/svg+xml" />
         </label>
         <button id="fitBtn" class="ghost" title="Fit drawing to canvas">📐 Fit</button>
         <button id="exampleBtn" class="ghost" title="Load an example star">⭐ Example</button>
@@ -303,8 +303,8 @@
     computeBtn.addEventListener('click', ()=> computeFourier());
     playBtn.addEventListener('click', togglePlay);
     clearBtn.addEventListener('click', ()=>{ state.drawing = []; state.samplePts = []; state.coeffs = []; state.recon = []; state.trail = []; state.playing=false; state.t=0; pointsCount.textContent='0'; drawOnce(); });
-    exportBtn.addEventListener('click', exportJSON);
-    importFile.addEventListener('change', importJSON);
+    exportBtn.addEventListener('click', exportSVG);
+    importFile.addEventListener('change', importSVG);
     fitBtn.addEventListener('click', ()=>{ fitDrawingToCanvas(); drawOnce(); });
     exampleBtn.addEventListener('click', ()=>{ loadExampleStar(); drawOnce(); });
     equationBtn.addEventListener('click', ()=>{
@@ -589,33 +589,50 @@
     }
 
     // ===== Import/Export =====
-    function exportJSON(){
-      if(!state.drawing.length){ alert('Nothing to export yet. Draw first.'); return; }
+    function exportSVG(){
+      if(!state.drawing.length){
+        alert('Nothing to export yet. Draw first.');
+        return;
+      }
       const rect = canvas.getBoundingClientRect();
       const cx = rect.width/2, cy = rect.height/2;
-      // Save normalized coordinates relative to center, scaled to min(rect.w, rect.h)/2
       const R = Math.min(rect.width, rect.height)/2;
-      const data = state.drawing.map(p=>({ x:(p.x-cx)/R, y:(p.y-cy)/R }));
-      const blob = new Blob([JSON.stringify({points:data, closed:state.closed}, null, 2)], {type:'application/json'});
+      const tag = state.closed ? 'polygon' : 'polyline';
+      const points = state.drawing
+        .map(p=>`${(p.x-cx)/R},${(p.y-cy)/R}`)
+        .join(' ');
+      const svg = `<?xml version="1.0" encoding="UTF-8"?>`+
+                  `<svg xmlns="http://www.w3.org/2000/svg" viewBox="-1 -1 2 2">`+
+                  `<${tag} points="${points}" fill="none" stroke="black" stroke-width="0.01"/>`+
+                  `</svg>`;
+      const blob = new Blob([svg], {type:'image/svg+xml;charset=utf-8'});
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = 'fourier-drawing.json';
+      a.download = 'fourier-drawing.svg';
       a.click();
       URL.revokeObjectURL(a.href);
     }
 
-    function importJSON(evt){
+    function importSVG(evt){
       const file = evt.target.files[0]; if(!file) return;
       const reader = new FileReader();
       reader.onload = e => {
         try{
-          const obj = JSON.parse(String(e.target.result));
-          const pts = obj.points; if(!Array.isArray(pts) || !pts.length) throw new Error('Invalid file');
+          const text = String(e.target.result);
+          const doc = new DOMParser().parseFromString(text, 'image/svg+xml');
+          const poly = doc.querySelector('polyline, polygon');
+          if(!poly) throw new Error('No polyline or polygon found');
+          const raw = poly.getAttribute('points') || '';
+          const pts = raw.trim().split(/\s+/).map(pt=>pt.split(',').map(Number)).filter(([x,y])=>isFinite(x)&&isFinite(y));
+          if(!pts.length) throw new Error('Invalid points');
           const rect = canvas.getBoundingClientRect();
           const cx = rect.width/2, cy = rect.height/2; const R = Math.min(rect.width, rect.height)/2;
-          state.drawing = pts.map(p=>({ x: cx + Number(p.x)*R, y: cy + Number(p.y)*R }));
-          state.closed = !!obj.closed; closePathCB.checked = state.closed;
-          state.mode='draw'; state.playing=false; state.t=0; drawOnce();
+          state.drawing = pts.map(([x,y])=>({ x: cx + x*R, y: cy + y*R }));
+          state.closed = poly.tagName.toLowerCase() === 'polygon';
+          closePathCB.checked = state.closed;
+          state.mode='draw'; state.playing=false; state.t=0;
+          pointsCount.textContent = String(state.drawing.length);
+          drawOnce();
         }catch(err){ alert('Failed to import: '+err.message); }
         finally { evt.target.value=''; }
       };
