@@ -135,11 +135,10 @@
         <button id="exportBtn" class="ghost" title="Download your drawing as SVG">💾 Export</button>
         <label class="btn ghost" title="Load an SVG file previously exported">
           📂 Import <input id="importFile" type="file" accept="image/svg+xml" />
-        </label>
         <button id="fitBtn" class="ghost" title="Fit drawing to canvas">📐 Fit</button>
         <button id="exampleBtn" class="ghost" title="Load an example star">⭐ Example</button>
         <button id="equationBtn" class="ghost" title="Show series equation">∑ Equation</button>
-        <button id="transformBtn" class="ghost" title="Plot real series f(t) = x(t) + y(t)">📊 Plot Cycle</button>
+        <button id="transformBtn" class="ghost" title="Plot real series f(t) = x(t) + y(t)">📊 Transform</button>
       </div>
     </div>
 
@@ -319,8 +318,8 @@
       pointsCount.textContent = '0';
       drawOnce();
     });
-    exportBtn.addEventListener('click', exportJSON);
-    importFile.addEventListener('change', importJSON);
+    exportBtn.addEventListener('click', exportSVG);
+    importFile.addEventListener('change', importSVG);
     fitBtn.addEventListener('click', ()=>{ fitDrawingToCanvas(); drawOnce(); });
     exampleBtn.addEventListener('click', ()=>{ loadExampleStar(); drawOnce(); });
     equationBtn.addEventListener('click', ()=>{
@@ -346,8 +345,7 @@
         resetCoeffs();
       }
     });
-    // Transform (spectrum) modal listeners
-
+    // Transform plot modal listeners
     transformBtn.addEventListener('click', ()=>{ openTransformModal(); });
     tfClose.addEventListener('click', ()=>{ tfModal.classList.add('hidden'); });
     tfModal.addEventListener('click', (e)=>{ if(e.target === tfModal) tfModal.classList.add('hidden'); });
@@ -844,7 +842,7 @@ function buildEquationHTML2(){
   const base = has ? (map.get(0) || {re:0, im:0, amp:0, phase:0}) : {re:0, im:0, amp:0, phase:0};
   const fmt = (n,d=4)=> (Math.abs(n) < 1e-12 ? 0 : n).toFixed(d);
 
-  const toggle = `
+    const toggle = `
 <div style="display:flex;gap:8px;align-items:center;margin:0 0 10px">
   <button id="eqToggleComplex" class="${mode==='complex'?'primary sm':'ghost sm'}">Epicycle (complex)</button>
   <button id="eqToggleReal" class="${mode==='real'?'primary sm':'ghost sm'}">Sine/Cosine (real)</button>
@@ -870,7 +868,7 @@ function buildEquationHTML2(){
   <div>\\(E\\) is the Epicycles count — how many nonzero \\(k\\) terms are used in the reconstruction.</div>
 </div>`;
 
-  if(!has){
+    if(!has){
     let baseForm;
     if(mode==='complex'){
       baseForm = `
@@ -945,13 +943,13 @@ ${baseForm}`;
 <div class="muted" style="margin-bottom:8px">Using E = ${kList.length} epicycles; expressed as z(t) with real coefficients.</div>
 <div class="formula">\\[ z(t) = ${zExpr} \\]</div>`;
   }
-
+  
   const table = mode==='complex'
-    ? `<table><thead><tr><th>k</th><th>Re(Ck)</th><th>Im(Ck)</th><th>|Ck|</th><th>phase (rad)</th></tr></thead><tbody>${rows}</tbody></table>`
+    ? `<table><thead><tr><th>k</th><th>Re(Ck)</th><th>Im(Ck)</th><th>\\(|C_k|\\)</th><th>phase (rad)</th></tr></thead><tbody>${rows}</tbody></table>`
     : `<table><thead><tr><th>k</th><th>a_k=Re(Ck)</th><th>b_k=Im(Ck)</th></tr></thead><tbody>${rows}</tbody></table>`;
 
   const footer = `<div class="muted" style="margin:.5rem 0 0.2rem">K = { ${Kset} } (interleaved order: 1, −1, 2, −2, …)</div>
-<div class="muted" style="margin:.2rem 0 0">Hint: |C_k| is the radius of the k-th circle; phase sets the arm’s starting angle.</div>`;
+  <div class="muted" style="margin:.2rem 0 0">Hint: \\(|C_k|\\) is the radius of the k-th circle; phase sets the arm’s starting angle.</div>`;
 
   return `${toggle}${simplify}${legend}${header}${table}${footer}`;
 }
@@ -997,7 +995,7 @@ ${baseForm}`;
         return;
       }
 
-     // Compute real series values f(t) = x(t) + y(t)
+      // Compute real series values f(t) = x(t) + y(t)
       const samples = Math.max(32, state.samplePts.length || 0);
       const values = new Array(samples);
       let min = Infinity, max = -Infinity;
@@ -1048,6 +1046,7 @@ ${baseForm}`;
       ctx2.stroke();
     }
 
+
     // ===== Self-tests (lightweight sanity checks) =====
     function runSelfTests(){
       try{
@@ -1071,6 +1070,3 @@ ${baseForm}`;
   </script>
 </body>
 </html>
-
-
-
